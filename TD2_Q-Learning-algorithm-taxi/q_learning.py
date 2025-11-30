@@ -37,26 +37,17 @@ def epsilon_greedy(Q, s, epsilone):
         
     return action
 
+# separate functions in order to be able to import them in other files
 
-if __name__ == "__main__":
-    # Training Phase
+def train(alpha, gamma, epsilon, n_epochs=10000, max_itr_per_epoch=100):
+    """
+    Encapsulated training function. 
+    Runs the Q-Learning training loop and returns the trained Q-table and reward history.
+    """
     # Create environment (no render_mode to speed up training)
     env = gym.make("Taxi-v3")
-    
-    env.reset()
-
     Q = np.zeros([env.observation_space.n, env.action_space.n])
-
-    # choose your own
-    alpha = 0.1      # Learning rate
-    gamma = 0.99     # Discount factor
-    epsilon = 0.2    # Exploration rate
-    
-    n_epochs = 10000        # Number of episodes
-    max_itr_per_epoch = 100  # Max steps per episode (timeout)
-    rewards = []             
-
-    print("Start Training :")
+    rewards = []
 
     for e in range(n_epochs):
         r = 0
@@ -64,76 +55,98 @@ if __name__ == "__main__":
 
         for _ in range(max_itr_per_epoch):
             A = epsilon_greedy(Q=Q, s=S, epsilone=epsilon)
-
-            Sprime, R, done, _, info = env.step(A)
-
-            r += R
-
-            Q = update_q_table(
-                Q=Q, s=S, a=A, r=R, sprime=Sprime, alpha=alpha, gamma=gamma
-            )
+            Sprime, R, done, _, _ = env.step(A)
             
-            # Update state and put a stoping criteria
+            r += R
+            
+            Q = update_q_table(Q, S, A, R, Sprime, alpha, gamma)
+            
+            # Update state
             S = Sprime
+            
+            if done:
+                break
+        
+        # print reward per episode
+        # print("train_episode #", e, " : r = ", r) 
+        
+        rewards.append(r)
+        
+    env.close()
+    return Q, rewards
+
+def evaluate(Q, n_episodes=10, max_itr=100, render=False):
+    """
+    Evaluation function using a purely Greedy policy.
+    Returns the mean reward over n_episodes.
+    """
+    render_mode = "human" if render else None
+    env = gym.make("Taxi-v3", render_mode=render_mode)
+    eval_rewards = []
+
+    for e in range(n_episodes):
+        S, _ = env.reset()
+        r = 0
+        done = False
+        
+        for _ in range(max_itr):
+            # Greedy policy (exploitation only)
+            A = np.argmax(Q[S, :]) 
+            
+            Sprime, R, done, _, _ = env.step(A)
+            r += R
+            S = Sprime
+            
+            if render:
+                env.render()
+                
             if done:
                 break
 
-        print("episode #", e, " : r = ", r)
+        if render:
+            # print reward per episode
+            print("eval_episode #", e, " : r = ", r)
 
-        rewards.append(r)
+        eval_rewards.append(r)
+    
+    env.close()
+    return np.mean(eval_rewards), eval_rewards
 
-    print("Average reward = ", np.mean(rewards))
+if __name__ == "__main__":    
+    """
+    Default hyper-parameters.
+    Update these after running 'optimizer.py'.
+    """
+    alpha = 0.3      # Learning rate
+    gamma = 0.95     # Discount factor
+    epsilon = 0.5    # Exploration rate
+    
+    print(f"Start training with Learning rate={alpha}, Discount factor={gamma}, Exploration rate={epsilon} :")
+
+    # 1. Train the agent
+    Q_learned, training_rewards = train(alpha, gamma, epsilon, n_epochs=20000)
+    
+    print(f"Average reward: {np.mean(training_rewards)}\nTraining finished.")
     
     # Plot the rewards in function of epochs
+    print("Plotting training rewards... \n")
     plt.figure()
-    plt.plot(rewards)
+    plt.plot(training_rewards)
     plt.xlabel("Episodes")
     plt.ylabel("Rewards")
     plt.title("Training Progress")
     plt.show()
 
-    print("Training finished.\n")
-
-    env.close()
-
-    # Evaluate the q-learning algorihtm
+    # 2. Evaluate the agent
+    print("Starting evaluation :")
+    avg_score, eval_rewards = evaluate(Q_learned, n_episodes=10, render=True)
     
-    print("Starting Evaluation :")
-    
-    # Create a new environment with rendering enabled
-    env_eval = gym.make("Taxi-v3", render_mode="human")
-    n_eval_episodes = 10
-    eval_rewards = []
+    print(f"Average evaluation score: {avg_score}\nEvaluation finished.")
 
-    for e in range(n_eval_episodes):
-        S, _ = env_eval.reset()
-        r = 0
-        done = False
-        
-        for _ in range(max_itr_per_epoch):
-            # For evaluation, we select the BEST action (Greedy), no random exploration
-            A = np.argmax(Q[S, :])
-            
-            Sprime, R, done, _, info = env_eval.step(A)
-            r += R
-            S = Sprime
-
-            env_eval.render()
-            
-            if done:
-                print("episode #", e, " : r = ", r)
-                break
-
-        eval_rewards.append(r)
-        
-    print("Average reward = ", np.mean(eval_rewards))
-
-    # Plot the evalution rewards in function of epochs
+    print("Plotting evaluation rewards... \n")
     plt.figure()
     plt.plot(eval_rewards)
     plt.xlabel("Episodes")
     plt.ylabel("Rewards")
     plt.title("Evaluation Rewards")
     plt.show()
-
-    env_eval.close()
